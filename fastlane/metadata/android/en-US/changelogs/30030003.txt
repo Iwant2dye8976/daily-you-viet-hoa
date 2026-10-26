@@ -1,0 +1,7 @@
+Daily You v3.3.0 has arrived! Taking action:
+
+• Revamped the action toolbar for creating and editing logs
+• Prevent daily flashbacks from changing after a new log is created
+• Improved bullet point handling
+• Show log deletion confirmation when trying to delete a new log
+• Updated translations

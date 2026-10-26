@@ -1,0 +1,279 @@
+// Copyright (C) 2026 Demizo and contributors
+// SPDX-License-Identifier: GPL-3.0-only
+// Additional terms under GPLv3 section 7 apply; see ADDITIONAL_TERMS.md.
+
+import 'dart:io';
+
+import 'package:daily_you/database/attachment_storage.dart';
+import 'package:daily_you/l10n/generated/app_localizations.dart';
+import 'package:daily_you/models/attachment.dart';
+import 'package:daily_you/pages/edit_entry_page.dart';
+import 'package:daily_you/pages/attachment_view_page.dart';
+import 'package:daily_you/providers/entries_provider.dart';
+import 'package:daily_you/providers/entry_attachments_provider.dart';
+import 'package:daily_you/time_manager.dart';
+import 'package:daily_you/utils/attachment_mime.dart';
+import 'package:daily_you/widgets/attachment_tile_background.dart';
+import 'package:daily_you/widgets/entry_date_time_labels.dart';
+import 'package:daily_you/widgets/mood_icon.dart';
+import 'package:daily_you/widgets/scaled_markdown.dart';
+import 'package:daily_you/widgets/entry_tag_chips.dart';
+import 'package:daily_you/widgets/tag_chip.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
+
+class EntryViewPage extends StatefulWidget {
+  const EntryViewPage({
+    super.key,
+    required this.entryId,
+    required this.onEntryEdited,
+  });
+
+  final int entryId;
+  final Function(int entryId) onEntryEdited;
+
+  @override
+  State<EntryViewPage> createState() => _EntryViewPageState();
+}
+
+class _EntryViewPageState extends State<EntryViewPage> {
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final entriesProvider = Provider.of<EntriesProvider>(context);
+    final entryAttachmentsProvider =
+        Provider.of<EntryAttachmentsProvider>(context);
+
+    final entry = entriesProvider.entries
+        .where((e) => e.id == widget.entryId)
+        .firstOrNull;
+    if (entry == null) return const Scaffold();
+
+    final attachments = entryAttachmentsProvider.getForEntry(entry);
+    return Scaffold(
+      appBar: AppBar(
+        actions: [
+          _shareButton(context, entry, attachments),
+          _editButton(context, entry, attachments),
+        ],
+      ),
+      body: ListView(
+        children: [
+          Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 800),
+              child: Padding(
+                padding: const EdgeInsets.only(left: 8, right: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (attachments.isNotEmpty && attachments.length > 1)
+                      _attachmentsList(context, attachments),
+                    if (attachments.isNotEmpty && attachments.length == 1)
+                      GestureDetector(
+                        child: Center(
+                          child: SizedBox(
+                            height: 220,
+                            width: 220,
+                            child: Card.filled(
+                                clipBehavior: Clip.antiAlias,
+                                child: AttachmentTileBackground(
+                                    attachment: attachments.first)),
+                          ),
+                        ),
+                        onTap: () async {
+                          await Navigator.of(context).push(
+                              AttachmentViewPage.route(
+                                  attachments: attachments, index: 0));
+                        },
+                      ),
+                    Card.filled(
+                      color: Theme.of(context).colorScheme.surfaceContainer,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          SizedBox(
+                            width: double.infinity,
+                            child: Wrap(
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              alignment: WrapAlignment.spaceBetween,
+                              children: [
+                                EntryDateTimeLabels(
+                                  dateTime: entry.timeCreate,
+                                  timeColor: theme.dividerColor,
+                                ),
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: MoodIcon(
+                                    moodValue: entry.mood,
+                                    size: 24,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          EntryTagChips(
+                            entryId: entry.id!,
+                            padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+                            chipBuilder: (tag, entryTag) =>
+                                TagChip(tag: tag, value: entryTag.value),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (entry.text.isNotEmpty)
+                      Card.filled(
+                          color: Theme.of(context).colorScheme.surfaceContainer,
+                          child: Padding(
+                              padding: const EdgeInsets.only(
+                                  left: 8, top: 4, bottom: 4, right: 8),
+                              child: ScaledMarkdown(
+                                data: entry.text,
+                                selectable: false,
+                              ))),
+                    Padding(
+                      padding: const EdgeInsets.only(
+                          left: 8, top: 4, bottom: 18, right: 8),
+                      child: Text(
+                        "${AppLocalizations.of(context)!.lastModified}: ${TimeManager.formatDateWithWeekday(entry.timeModified, context)} ${TimeManager.localizedTimeFormat(context, TimeManager.currentLocale(context)).format(entry.timeModified)}",
+                        style:
+                            TextStyle(fontSize: 12, color: theme.disabledColor),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _editButton(
+      BuildContext context, entry, List<EntryAttachment> attachments) {
+    return IconButton(
+        icon: const Icon(Icons.edit_rounded),
+        onPressed: () async {
+          await Navigator.of(context).push(PageRouteBuilder(
+            allowSnapshotting: false,
+            fullscreenDialog: true,
+            pageBuilder: (context, _, __) =>
+                AddEditEntryPage(entry: entry, attachments: attachments),
+            transitionsBuilder:
+                (context, animation, secondaryAnimation, child) {
+              return FadeTransition(
+                opacity: animation,
+                child: child,
+              );
+            },
+            transitionDuration: const Duration(milliseconds: 200),
+          ));
+
+          widget.onEntryEdited(entry.id);
+        });
+  }
+
+  Widget _shareButton(
+      BuildContext context, entry, List<EntryAttachment> attachments) {
+    if (Platform.isAndroid &&
+        (attachments.isNotEmpty || entry.text.isNotEmpty)) {
+      return IconButton(
+          icon: const Icon(Icons.share_rounded),
+          onPressed: () async {
+            String sharedText = "";
+            if (entry.mood != null) {
+              sharedText = "${MoodIcon.getMoodIcon(entry.mood)} ";
+            }
+            sharedText =
+                "$sharedText${TimeManager.formatDateWithWeekday(entry.timeCreate, context)}\n${entry.text}";
+
+            final files = <XFile>[];
+            final fileNames = <String>[];
+            for (final attachment in attachments) {
+              final localPath = await AttachmentStorage.instance
+                  .getLocalPath(attachment.filePath, attachment.type);
+              if (localPath == null) continue;
+              files.add(XFile(localPath,
+                  mimeType: attachmentMimeType(
+                      attachment.filePath, attachment.type)));
+              fileNames.add(attachment.filePath);
+            }
+            await SharePlus.instance.share(ShareParams(
+                files: files, fileNameOverrides: fileNames, text: sharedText));
+          });
+    }
+    return Container();
+  }
+
+  Widget _attachmentsList(
+      BuildContext context, List<EntryAttachment> attachments) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const tileSize = 160.0;
+        final fits = attachments.length * tileSize <= constraints.maxWidth;
+
+        if (fits) {
+          return Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: attachments
+                  .map(
+                    (attachment) => SizedBox(
+                      width: tileSize,
+                      child: GestureDetector(
+                        child: Center(
+                          child: SizedBox(
+                            height: tileSize,
+                            width: tileSize,
+                            child: Card.filled(
+                                clipBehavior: Clip.antiAlias,
+                                child: AttachmentTileBackground(
+                                    attachment: attachment)),
+                          ),
+                        ),
+                        onTap: () async {
+                          await Navigator.of(context).push(
+                              AttachmentViewPage.route(
+                                  attachments: attachments,
+                                  index: attachments.indexWhere(
+                                      (x) => x.id == attachment.id)));
+                        },
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+          );
+        }
+
+        return SizedBox(
+          height: tileSize,
+          child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              itemCount: attachments.length,
+              itemBuilder: (context, index) {
+                return GestureDetector(
+                  child: Center(
+                    child: SizedBox(
+                      height: tileSize,
+                      width: tileSize,
+                      child: Card.filled(
+                          clipBehavior: Clip.antiAlias,
+                          child: AttachmentTileBackground(
+                              attachment: attachments[index])),
+                    ),
+                  ),
+                  onTap: () async {
+                    await Navigator.of(context).push(AttachmentViewPage.route(
+                        attachments: attachments, index: index));
+                  },
+                );
+              }),
+        );
+      },
+    );
+  }
+}

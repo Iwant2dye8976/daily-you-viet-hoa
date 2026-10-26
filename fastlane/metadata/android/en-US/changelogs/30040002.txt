@@ -1,0 +1,7 @@
+Daily You v3.4.0 has arrived! Journal with style:
+
+• Added an inline Markdown style preview to the editor
+• Added support for Markdown text highlighting
+• Made the alarm permission optional
+• Fixed templates not inserting at the cursor position
+• Minor UI fixes and under the hood improvements
